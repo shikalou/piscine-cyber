@@ -1,7 +1,8 @@
+import shutil
 import sys
 import os
 import requests
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
 
@@ -38,6 +39,7 @@ class Arg():
 
 
 def dl_image(arg: Arg, site: str, depth: int=0):
+    # print("url =", site)
     rep = requests.get(site)
     arg.visited.append(site)
     soup = BeautifulSoup(rep.text, 'html.parser')
@@ -48,17 +50,26 @@ def dl_image(arg: Arg, site: str, depth: int=0):
             src = urljoin(site, src)
         filename = os.path.join(arg.p, src.split('/')[-1])
         with open(filename, 'wb') as ret:
+            print("img dl =", filename)
             res = requests.get(src)
             ret.write(res.content)
     if (arg.r is True):
-        if (depth < arg.l):
+        if (depth > 0):
+            dom = urlparse(site).netloc
             links = soup.find_all('a', href=True)
             for link in links:
                 url = link['href']
-                print(url)
-        else:
-            print("max l reached")
-            return
+                nurl = urlparse(site).scheme + "://" + urlparse(site).netloc + url
+                print("URL: ", nurl)
+                if (nurl in arg.visited): continue
+                if urlparse(nurl).netloc == dom:
+                    if ('http' in nurl): 
+                        dl_image(arg, nurl, depth-1)
+                # if (url in arg.visited): continue
+                # if urlparse(url).netloc == dom:
+                #     if ('http' in url): 
+                #         dl_image(arg, url, depth-1)
+    return
 
 def main():
     arg = Arg()
@@ -69,12 +80,16 @@ def main():
         sys.exit()
     # print(arg.__dict__)
     
-    try:# check download path
-        if not os.path.exists(arg.p):
-            os.makedirs(arg.p)
-        dl_image(arg, arg.site)# DL PHOTO TO PATH
-    except:
-        print("Error")
+# check download path
+    if os.path.exists(arg.p):
+        shutil.rmtree(arg.p, ignore_errors=True)
+        os.makedirs(arg.p)
+    else:
+        os.makedirs(arg.p)
+    # if not os.path.exists(arg.p):
+        # os.makedirs(arg.p)
+    dl_image(arg, arg.site, arg.l)# DL PHOTO TO PATH
+
 if __name__ == "__main__":
     main()
 
