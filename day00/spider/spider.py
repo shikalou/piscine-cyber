@@ -1,105 +1,84 @@
-import shutil
 import sys
+import argparse
 import os
+import shutil
 import requests
-from urllib.parse import urljoin, urlparse
+import string
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+
+visited = []
+
+def check_positive(value):
+    ivalue = int(value)
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError("%s is an invalid positive int value" % value)
+    return ivalue
 
 
-class Arg():
-    def __init__(self) -> None:
-        self.p = "./data/"
-        self.l = 5
-        self.l_b = False
-        self.r = False
-        self.site = ""
-        self.visited = []
+def clean_filename(filename):
+    valid_chars = "-_.() %s%s" % (string.ascii_letters, string.digits)
+    cleaned_filename = ''.join(c for c in filename if c in valid_chars)
+    return cleaned_filename.strip()
 
 
-    def init_arg(self, tab: list):
-        try:
-            for i in range(0, len(tab)):
-                if tab[i].startswith("-"):
-                    if ('p' in tab[i]):
-                        self.p = tab[i+1]
-                    elif ('r' in tab[i]):
-                        self.r = True
-                    elif ('l' in tab[i]):
-                        self.l_b = True
-                        self.l = int(tab[i+1])
-                if tab[i].startswith("http"):
-                    self.site = tab[i]
-            if self.l_b is True and self.r is False:
-                raise Exception("cant initiat -l without -r")
-            if self.site == "":
-                raise Exception("wrong website url")
-        except Exception as msg:
-            print(msg)
-            sys.exit()
+def dl_image(args, url: str, depth: int):
+    print("URL =", url)
+    response = requests.get(url)
+    visited.append(url)
 
-
-def dl_image(arg: Arg, site: str, depth: int=0):
-    # print("url =", site)
-    rep = requests.get(site)
-    arg.visited.append(site)
-    soup = BeautifulSoup(rep.text, 'html.parser')
+    soup = BeautifulSoup(response.text, 'html.parser') # soup obj
     imgs = soup.find_all('img')
-    for img in imgs:
+    for img in imgs: # dl all imgs in loop
         src = img['src']
+        print("SRRRCCCCCC", src)
         if not src.startswith('http'):
-            src = urljoin(site, src)
-        filename = os.path.join(arg.p, src.split('/')[-1])
+            src = urljoin(url, src)
+        filename = os.path.join(args.path, clean_filename(os.path.basename(urlparse(src).path)))
         with open(filename, 'wb') as ret:
-            print("img dl =", filename)
+            print("img =", filename)
             res = requests.get(src)
             ret.write(res.content)
-    if (arg.r is True):
-        if (depth > 0):
-            dom = urlparse(site).netloc
+
+    if (args.recurcive is True):
+        print("DEPTH ",depth)
+        if depth > 0:
+            dom = urlparse(url).netloc
             links = soup.find_all('a', href=True)
             for link in links:
-                url = link['href']
-                nurl = urlparse(site).scheme + "://" + urlparse(site).netloc + url
-                print("URL: ", nurl)
-                if (nurl in arg.visited): continue
-                if urlparse(nurl).netloc == dom:
-                    if ('http' in nurl): 
-                        dl_image(arg, nurl, depth-1)
-                # if (url in arg.visited): continue
-                # if urlparse(url).netloc == dom:
-                #     if ('http' in url): 
-                #         dl_image(arg, url, depth-1)
+                new_url = link['href']
+                print(f"link in {url}", new_url)
+                if not new_url.startswith('http'):
+                    new_url = urlparse(url).scheme + "://" + urlparse(url).netloc + new_url
+                else : new_url = urljoin(url, new_url)
+                if new_url in visited:
+                    continue
+                if urlparse(new_url).netloc == dom:
+                    dl_image(args, new_url, depth - 1)
     return
 
+
 def main():
-    arg = Arg()
-    try:
-        arg.init_arg(sys.argv)
-    except Exception as msg:
-        print(msg)
-        sys.exit()
-    # print(arg.__dict__)
-    
-# check download path
-    if os.path.exists(arg.p):
-        shutil.rmtree(arg.p, ignore_errors=True)
-        os.makedirs(arg.p)
+
+    # parser
+    parser = argparse.ArgumentParser()
+    parser.add_argument("url", help="url to scrap")
+    parser.add_argument("-p", dest="path", type=str, default="./data/", required=False, help="dir where to save imgs")
+    parser.add_argument("-r", dest="recurcive", action="store_true", required=False, help="to download imgs recurcively")
+    parser.add_argument("-l", dest="depth", type=check_positive, default=5, required=False, help="set recurcive depth")
+    args = parser.parse_args()
+    print(args.__dict__)
+
+    # check directory path
+    if os.path.exists(args.path):
+        shutil.rmtree(args.path, ignore_errors=True)
+        os.makedirs(args.path)
     else:
-        os.makedirs(arg.p)
-    # if not os.path.exists(arg.p):
-        # os.makedirs(arg.p)
-    dl_image(arg, arg.site, arg.l)# DL PHOTO TO PATH
+        os.makedirs(args.path)
+
+    # run images scrapping
+    dl_image(args, args.url, args.depth)
+
 
 if __name__ == "__main__":
     main()
-
-# python spider.py [URL]
-# python spider.py -r [URL]
-# python spider.py -r -l 6 [URL]
-# python spider.py -p [PATH] [URL]
-
-# • Option -r : recursively downloads the images in a URL received as a parameter.
-# • Option -r -l [N] : indicates the maximum depth level of the recursive download.
-# If not indicated, it will be 5.
-# • Option -p [PATH] : indicates the path where the downloaded files will be saved.
-# If not specified, ./data/ will be used.
